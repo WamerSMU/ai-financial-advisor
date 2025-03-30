@@ -1,4 +1,4 @@
-print("Hello from the AI Financial Advisor!")
+print("REMI is live — time to talk money!")
 
 from flask import Flask, request, jsonify, session
 from flask_cors import CORS
@@ -12,13 +12,23 @@ load_dotenv()
 api_key = os.getenv("GROQ_API_KEY")
 nlp = spacy.load("en_core_web_sm")
 
+# Market Insight Snippets
+market_insights = {
+    "retirement": "Inflation is outpacing traditional savings. Consider Roth IRAs or diversified ETFs.",
+    "home": "Mortgage rates are still above average. First-time buyer programs or ARM loans could be a move.",
+    "vacation": "Travel prices are up, but points/rewards cards may offset. Smart budgeting = smarter play.",
+    "education": "Student loan rates are brutal. 529s and education tax credits are your best friend.",
+    "unspecified": "Markets are jittery. Index funds remain stable while tech sees swings."
+}
+
+# Flask Setup
 app = Flask(__name__)
 CORS(app)
 app.secret_key = "supersecretkey"
 
 @app.route("/")
 def home():
-    return jsonify({"message": "Welcome to the AI Financial Advisor API!"})
+    return jsonify({"message": "Welcome to REMI – Your AI Financial Advisor!"})
 
 def extract_goal(message):
     doc = nlp(message.lower())
@@ -29,9 +39,9 @@ def extract_goal(message):
         "education": ["college", "university", "school", "degree"],
     }
     for token in doc:
-        for key, keywords in goal_map.items():
+        for goal, keywords in goal_map.items():
             if token.lemma_ in keywords:
-                return key
+                return goal
     return "unspecified"
 
 @app.route("/analyze_budget", methods=["POST"])
@@ -43,12 +53,12 @@ def analyze_budget():
         if "chat_history" not in session:
             session["chat_history"] = []
 
-        # If user sends a plain message (free-form chat)
         if message:
             guessed_goal = extract_goal(message)
+            market_snippet = market_insights.get(guessed_goal, market_insights["unspecified"])
             session["chat_history"].append({
                 "role": "user",
-                "content": f"{message} (Possible goal detected: {guessed_goal})"
+                "content": f"{message} (Detected goal: {guessed_goal})"
             })
         else:
             # Structured JSON input
@@ -59,32 +69,37 @@ def analyze_budget():
             age = data.get("age")
             monthly_debt = data.get("monthly_debt")
             existing_savings = data.get("existing_savings")
-            financial_goal = data.get("financial_goal")
+            financial_goal = data.get("financial_goal", "unspecified")
 
             disposable_income = income - expenses
             savings_rate = round((disposable_income / income) * 100, 2) if income else 0
             debt_to_income = round((monthly_debt / (income / 12)) * 100, 2) if monthly_debt and income else None
 
+            market_snippet = market_insights.get(financial_goal, market_insights["unspecified"])
+
             user_message = (
-                f"User earns ${income} annually, spends ${expenses}, with a savings goal of ${savings_goal}. "
-                f"Their disposable income is ${disposable_income} and savings rate is {savings_rate}%. "
+                f"User earns ${income}/yr, spends ${expenses}, wants to save ${savings_goal}. "
+                f"Disposable: ${disposable_income}, Savings rate: {savings_rate}%. "
             )
-
             if age:
-                user_message += f"They are {age} years old. "
+                user_message += f"Age: {age}. "
             if debt_to_income is not None:
-                user_message += f"Their debt-to-income ratio is {debt_to_income}%. "
+                user_message += f"DTI: {debt_to_income}%. "
             if existing_savings:
-                user_message += f"They have ${existing_savings} in current savings. "
+                user_message += f"Current savings: ${existing_savings}. "
             if financial_goal:
-                user_message += f"Their financial goal is: {financial_goal}. "
+                user_message += f"Financial goal: {financial_goal}. "
 
-            user_message += f"Risk tolerance is {risk_tolerance}. Provide blunt, realistic financial advice."
+            user_message += f"Risk: {risk_tolerance}. Be blunt, realistic, helpful."
 
             session["chat_history"].append({"role": "user", "content": user_message})
 
-        market_summary = (
-            "Current market trends: Interest rates are high, tech stocks are volatile, and index funds remain stable."
+        # Build system prompt with REMI’s voice
+        system_prompt = (
+            "You are REMI (Real-time Economic & Money Insights), an AI financial advisor with a sharp, New York edge. "
+            "You don’t sugarcoat, and you don’t ramble. Be concise, witty, and give real strategies. "
+            f"Market snapshot: {market_snippet} "
+            "End every reply with a quick follow-up question to keep the convo going."
         )
 
         groq_response = requests.post(
@@ -92,13 +107,7 @@ def analyze_budget():
             headers={"Authorization": f"Bearer {api_key}"},
             json={
                 "model": "llama3-8b-8192",
-                "messages": [
-                    {"role": "system", "content": (
-                        "You are a sharp, straightforward AI financial advisor. "
-                        "Give practical budgeting and investing advice based on the user's profile. "
-                        f"Here is a snapshot of current market context: {market_summary}"
-                    )}
-                ] + session["chat_history"]
+                "messages": [{"role": "system", "content": system_prompt}] + session["chat_history"]
             }
         )
 
