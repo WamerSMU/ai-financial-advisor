@@ -21,38 +21,45 @@
   </p>
 
   <script>
-    const u = "https://ai-financial-advisor.onrender.com/analyze_budget";
-    const c = document.getElementById("chatbox");
-    const f = document.getElementById("input-form");
-    const i = document.getElementById("user-input");
+  const u = "https://ai-financial-advisor-esbr.onrender.com/analyze_budget";
+  const c = document.getElementById("chatbox");
+  const f = document.getElementById("input-form");
+  const i = document.getElementById("user-input");
 
-    function m(role, text) {
-      const d = document.createElement("div");
-      d.className = "message " + (role === "user" ? "user" : "ai");
-      d.textContent = (role === "user" ? "You: " : "REMI: ") + text;
-      c.appendChild(d);
-      c.scrollTop = c.scrollHeight;
-    }
+  function m(role, text) {
+    const d = document.createElement("div");
+    d.className = "message " + (role === "user" ? "user" : "ai");
+    d.textContent = (role === "user" ? "You: " : "REMI: ") + text;
+    c.appendChild(d);
+    c.scrollTop = c.scrollHeight;
+  }
 
-    f.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const q = i.value.trim();
-      if (!q) return;
-      m("user", q);
-      i.value = "";
-      try {
-        const res = await fetch(u, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message: q })
-        });
-        const data = await res.json();
-        m("ai", data.response || "REMI had nothing to say.");
-      } catch (err) {
-        m("ai", "Oops, couldn’t reach REMI.");
+  f.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const v = i.value.trim();
+    if (!v) return;
+
+    m("user", v);
+    i.value = "";
+
+    try {
+      const r = await fetch(u, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: v }),
+      });
+      const d = await r.json();
+      if (d.response) {
+        m("ai", d.response);
+      } else {
+        m("ai", "REMI: Hmm, something went wrong.");
       }
-    });
-  </script>
+    } catch (err) {
+      m("ai", "REMI: Oops, couldn’t reach REMI.");
+    }
+  });
+</script>
+
 </body>
 </html>
 
