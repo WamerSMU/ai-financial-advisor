@@ -26,10 +26,6 @@ app = Flask(__name__)
 CORS(app)
 app.secret_key = "supersecretkey"
 
-@app.route("/")
-def home():
-    return jsonify({"message": "Welcome to REMI – Your AI Financial Advisor!"})
-
 def extract_goal(message):
     doc = nlp(message.lower())
     goal_map = {
@@ -44,7 +40,7 @@ def extract_goal(message):
                 return goal
     return "unspecified"
 
-@app.route("/analyze_budget", methods=["POST"])
+@app.route("/", methods=["POST"])
 def analyze_budget():
     try:
         data = request.json
@@ -122,3 +118,4 @@ def analyze_budget():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
+
