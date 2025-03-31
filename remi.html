@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Talk to REMI</title>
+  <style>
+    body {
+      font-family: "Segoe UI", sans-serif;
+      background: #f0f4f8;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px;
+    }
+    h2 { color: #2c3e50; margin-bottom: 5px; }
+    .subtitle { font-size: 14px; color: #555; margin-bottom: 20px; }
+    .chatbox {
+      width: 100%; max-width: 600px;
+      background: #fff; border-radius: 12px;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.1);
+      padding: 20px; overflow-y: auto; max-height: 500px;
+      margin-bottom: 15px; scrollbar-width: thin;
+    }
+    .message { margin: 10px 0; line-height: 1.5; }
+    .user { font-weight: bold; color: #2c3e50; }
+    .ai { color: #00695c; }
+    form {
+      display: flex; width: 100%; max-width: 600px;
+    }
+    input[type="text"] {
+      flex: 1; padding: 12px; font-size: 16px;
+      border: 1px solid #ccc; border-radius: 8px 0 0 8px;
+      outline: none; spellcheck: true;
+    }
+    button {
+      padding: 12px 20px; background: #00695c; color: white;
+      border: none; border-radius: 0 8px 8px 0;
+      font-weight: bold; cursor: pointer;
+    }
+    .disclaimer {
+      color: #d32f2f; font-size: 13px;
+      text-align: center; max-width: 600px;
+      margin-top: 30px; line-height: 1.4;
+    }
+  </style>
+</head>
+<body>
+  <h2>💼 Talk to <strong>REMI</strong></h2>
+  <div class="subtitle">(Real-time Economic & Money Insights)</div>
+  <div class="chatbox" id="chatbox"></div>
+
+  <form id="input-form" autocomplete="off">
+    <input type="text" id="user-input" placeholder="Ask REMI anything..." required />
+    <button type="submit">Send</button>
+  </form>
+
+  <p class="disclaimer">
+    REMI is an AI financial assistant and does not provide licensed financial, legal, or investment advice.
+  </p>
+
+  <script>
+    const u = "https://ai-financial-advisor.onrender.com/analyze_budget";
+    const c = document.getElementById("chatbox");
+    const f = document.getElementById("input-form");
+    const i = document.getElementById("user-input");
+
+    function m(role, text) {
+      const d = document.createElement("div");
+      d.className = "message " + (role === "user" ? "user" : "ai");
+      d.textContent = (role === "user" ? "You: " : "REMI: ") + text;
+      c.appendChild(d);
+      c.scrollTop = c.scrollHeight;
+    }
+
+    f.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const q = i.value.trim();
+      if (!q) return;
+      m("user", q);
+      i.value = "";
+      try {
+        const res = await fetch(u, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: q })
+        });
+        const data = await res.json();
+        m("ai", data.response || "REMI had nothing to say.");
+      } catch (err) {
+        m("ai", "Oops, couldn’t reach REMI.");
+      }
+    });
+  </script>
+</body>
+</html>
