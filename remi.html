@@ -4,11 +4,88 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Talk to REMI</title>
-  <link rel="stylesheet" href="style.css" />
+  <style>
+    body {
+      font-family: "Segoe UI", sans-serif;
+      background: #f0f4f8;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px;
+    }
+
+    h2 {
+      color: #2c3e50;
+    }
+
+    .chatbox {
+      width: 100%;
+      max-width: 600px;
+      background: #ffffff;
+      border-radius: 12px;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.1);
+      padding: 20px;
+      overflow-y: auto;
+      max-height: 500px;
+      margin-bottom: 15px;
+      scrollbar-width: thin;
+    }
+
+    .message {
+      margin: 10px 0;
+      line-height: 1.5;
+    }
+
+    .user {
+      font-weight: bold;
+      color: #2c3e50;
+    }
+
+    .ai {
+      color: #00695c;
+    }
+
+    form {
+      display: flex;
+      width: 100%;
+      max-width: 600px;
+    }
+
+    input[type="text"] {
+      flex: 1;
+      padding: 12px;
+      font-size: 16px;
+      border: 1px solid #ccc;
+      border-radius: 8px 0 0 8px;
+      outline: none;
+      spellcheck: true;
+    }
+
+    button {
+      padding: 12px 20px;
+      background: #00695c;
+      color: white;
+      border: none;
+      border-radius: 0 8px 8px 0;
+      font-weight: bold;
+      cursor: pointer;
+    }
+
+    @media (max-width: 600px) {
+      .chatbox {
+        max-height: 400px;
+        padding: 15px;
+      }
+
+      input[type="text"], button {
+        font-size: 14px;
+        padding: 10px;
+      }
+    }
+  </style>
 </head>
 <body>
   <h2>💼 Talk to <strong>REMI</strong></h2>
-  <div class="subtitle">(Real-time Economic & Money Insights)</div>
   <div class="chatbox" id="chatbox"></div>
 
   <form id="input-form" autocomplete="off">
@@ -16,50 +93,41 @@
     <button type="submit">Send</button>
   </form>
 
-  <p class="disclaimer">
-    REMI is an AI financial assistant and does not provide licensed financial, legal, or investment advice.
-  </p>
-
   <script>
-  const u = "https://ai-financial-advisor-esbr.onrender.com/analyze_budget";
-  const c = document.getElementById("chatbox");
-  const f = document.getElementById("input-form");
-  const i = document.getElementById("user-input");
+    const API_URL = "https://ai-financial-advisor.onrender.com/analyze_budget"; // Replace with your backend Render URL
+    const chatbox = document.getElementById("chatbox");
+    const form = document.getElementById("input-form");
+    const input = document.getElementById("user-input");
 
-  function m(role, text) {
-    const d = document.createElement("div");
-    d.className = "message " + (role === "user" ? "user" : "ai");
-    d.textContent = (role === "user" ? "You: " : "REMI: ") + text;
-    c.appendChild(d);
-    c.scrollTop = c.scrollHeight;
-  }
-
-  f.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const v = i.value.trim();
-    if (!v) return;
-
-    m("user", v);
-    i.value = "";
-
-    try {
-      const r = await fetch(u, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: v }),
-      });
-      const d = await r.json();
-      if (d.response) {
-        m("ai", d.response);
-      } else {
-        m("ai", "REMI: Hmm, something went wrong.");
-      }
-    } catch (err) {
-      m("ai", "REMI: Oops, couldn’t reach REMI.");
+    function appendMessage(role, text) {
+      const div = document.createElement("div");
+      div.className = "message " + (role === "user" ? "user" : "ai");
+      div.textContent = (role === "user" ? "You: " : "REMI: ") + text;
+      chatbox.appendChild(div);
+      chatbox.scrollTop = chatbox.scrollHeight;
     }
-  });
-</script>
 
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const message = input.value.trim();
+      if (!message) return;
+
+      appendMessage("user", message);
+      input.value = "";
+
+      try {
+        const res = await fetch(API_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message })
+        });
+
+        const data = await res.json();
+        appendMessage("ai", data.response || "REMI had nothing to say.");
+      } catch (err) {
+        appendMessage("ai", "Oops, couldn't reach REMI. Try again in a few seconds.");
+      }
+    });
+  </script>
 </body>
 </html>
-
