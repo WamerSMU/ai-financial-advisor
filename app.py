@@ -23,7 +23,7 @@ market_insights = {
 
 # Flask Setup
 app = Flask(__name__)
-CORS(app)
+CORS(app, resources={r"/*": {"origins": "*"}})
 app.secret_key = "supersecretkey"
 
 def extract_goal(message):
