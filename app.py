@@ -6,11 +6,13 @@ import os
 import requests
 from dotenv import load_dotenv
 import spacy
+import joblib
 
 # Load environment and NLP
 load_dotenv()
 api_key = os.getenv("GROQ_API_KEY")
 nlp = spacy.load("en_core_web_sm")
+goal_model = joblib.load("goal_classifier_model.pkl")
 
 # Market Insight Snippets
 market_insights = {
@@ -26,19 +28,13 @@ app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 app.secret_key = "supersecretkey"
 
+# ML-powered goal classifier
 def extract_goal(message):
-    doc = nlp(message.lower())
-    goal_map = {
-        "retirement": ["retire", "retirement"],
-        "home": ["house", "home", "mortgage"],
-        "vacation": ["trip", "vacation", "travel", "holiday"],
-        "education": ["college", "university", "school", "degree"],
-    }
-    for token in doc:
-        for goal, keywords in goal_map.items():
-            if token.lemma_ in keywords:
-                return goal
-    return "unspecified"
+    try:
+        prediction = goal_model.predict([message])
+        return prediction[0]
+    except:
+        return "unspecified"
 
 @app.route("/", methods=["POST"])
 def analyze_budget():
@@ -118,4 +114,5 @@ def analyze_budget():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
+
 
