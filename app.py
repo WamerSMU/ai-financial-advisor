@@ -26,6 +26,7 @@ app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 app.secret_key = "supersecretkey"
 
+# Utility: NLP-based financial goal extraction
 def extract_goal(message):
     doc = nlp(message.lower())
     goal_map = {
@@ -40,6 +41,12 @@ def extract_goal(message):
                 return goal
     return "unspecified"
 
+# Context validator to check required financial inputs
+def get_missing_context(data):
+    required = ["income", "expenses", "savings_goal", "age", "financial_goal"]
+    missing = [key for key in required if not data.get(key)]
+    return missing
+
 @app.route("/analyze_budget", methods=["POST"])
 def analyze_budget():
     try:
@@ -49,6 +56,7 @@ def analyze_budget():
         if "chat_history" not in session:
             session["chat_history"] = []
 
+        # Freeform message
         if message:
             guessed_goal = extract_goal(message)
             market_snippet = market_insights.get(guessed_goal, market_insights["unspecified"])
@@ -57,7 +65,14 @@ def analyze_budget():
                 "content": f"{message} (Detected goal: {guessed_goal})"
             })
         else:
-            # Structured JSON input
+            # Structured input — validate what's missing
+            missing = get_missing_context(data)
+            if missing:
+                response = {
+                    "response": f"Hold up — I'm missing a few details: {', '.join(missing)}. Mind filling those in so I can give solid advice?"
+                }
+                return jsonify(response)
+
             income = data.get("income", 0)
             expenses = data.get("expenses", 0)
             savings_goal = data.get("savings_goal", 0)
@@ -90,7 +105,7 @@ def analyze_budget():
 
             session["chat_history"].append({"role": "user", "content": user_message})
 
-        # Enhanced system prompt with hallucination filters
+        # System prompt with hallucination control
         system_prompt = (
             "You are REMI (Real-time Economic & Money Insights), an AI financial advisor with a sharp, New York edge. "
             "You don’t sugarcoat, and you don’t ramble. Be concise, witty, and give real strategies. "
@@ -103,12 +118,15 @@ def analyze_budget():
             "End every reply with a quick follow-up question to keep the convo going."
         )
 
+        # Call Groq API
         groq_response = requests.post(
             "https://api.groq.com/openai/v1/chat/completions",
             headers={"Authorization": f"Bearer {api_key}"},
             json={
                 "model": "llama3-8b-8192",
-                "messages": [{"role": "system", "content": system_prompt}] + session["chat_history"]
+                "messages": [
+                    {"role": "system", "content": system_prompt}
+                ] + session["chat_history"]
             }
         )
 
