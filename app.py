@@ -90,7 +90,7 @@ def analyze_budget():
 
             session["chat_history"].append({"role": "user", "content": user_message})
 
-        # Build improved system prompt with hallucination controls
+        # Enhanced system prompt with hallucination filters
         system_prompt = (
             "You are REMI (Real-time Economic & Money Insights), an AI financial advisor with a sharp, New York edge. "
             "You don’t sugarcoat, and you don’t ramble. Be concise, witty, and give real strategies. "
@@ -103,15 +103,12 @@ def analyze_budget():
             "End every reply with a quick follow-up question to keep the convo going."
         )
 
-        # Make request to Groq
         groq_response = requests.post(
             "https://api.groq.com/openai/v1/chat/completions",
             headers={"Authorization": f"Bearer {api_key}"},
             json={
                 "model": "llama3-8b-8192",
-                "messages": [
-                    {"role": "system", "content": system_prompt}
-                ] + session["chat_history"]
+                "messages": [{"role": "system", "content": system_prompt}] + session["chat_history"]
             }
         )
 
@@ -126,6 +123,7 @@ def analyze_budget():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
+
 
 
 
