@@ -4,13 +4,15 @@ from flask import Flask, request, jsonify, session
 from flask_cors import CORS
 import os
 import requests
+import joblib
 from dotenv import load_dotenv
 import spacy
 
-# Load environment and NLP
+# Load environment, NLP, and ML model
 load_dotenv()
 api_key = os.getenv("GROQ_API_KEY")
 nlp = spacy.load("en_core_web_sm")
+goal_classifier = joblib.load("goal_classifier.pkl")
 
 # Market Insight Snippets
 market_insights = {
@@ -26,22 +28,14 @@ app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 app.secret_key = "supersecretkey"
 
-# Utility: NLP-based financial goal extraction
+# ML-based Financial Goal Classifier
 def extract_goal(message):
-    doc = nlp(message.lower())
-    goal_map = {
-        "retirement": ["retire", "retirement"],
-        "home": ["house", "home", "mortgage"],
-        "vacation": ["trip", "vacation", "travel", "holiday"],
-        "education": ["college", "university", "school", "degree"],
-    }
-    for token in doc:
-        for goal, keywords in goal_map.items():
-            if token.lemma_ in keywords:
-                return goal
-    return "unspecified"
+    try:
+        return goal_classifier.predict([message])[0]
+    except Exception:
+        return "unspecified"
 
-# Context validator to check required financial inputs
+# Check for required context
 def get_missing_context(data):
     required = ["income", "expenses", "savings_goal", "age", "financial_goal"]
     missing = [key for key in required if not data.get(key)]
@@ -56,7 +50,7 @@ def analyze_budget():
         if "chat_history" not in session:
             session["chat_history"] = []
 
-        # Freeform message
+        # Freeform message mode
         if message:
             guessed_goal = extract_goal(message)
             market_snippet = market_insights.get(guessed_goal, market_insights["unspecified"])
@@ -65,7 +59,7 @@ def analyze_budget():
                 "content": f"{message} (Detected goal: {guessed_goal})"
             })
         else:
-            # Structured input — validate what's missing
+            # Structured form input
             missing = get_missing_context(data)
             if missing:
                 response = {
@@ -124,9 +118,7 @@ def analyze_budget():
             headers={"Authorization": f"Bearer {api_key}"},
             json={
                 "model": "llama3-8b-8192",
-                "messages": [
-                    {"role": "system", "content": system_prompt}
-                ] + session["chat_history"]
+                "messages": [{"role": "system", "content": system_prompt}] + session["chat_history"]
             }
         )
 
@@ -141,6 +133,7 @@ def analyze_budget():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
+
 
 
 
