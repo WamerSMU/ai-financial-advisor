@@ -6,13 +6,11 @@ import os
 import requests
 from dotenv import load_dotenv
 import spacy
-import joblib
 
 # Load environment and NLP
 load_dotenv()
 api_key = os.getenv("GROQ_API_KEY")
 nlp = spacy.load("en_core_web_sm")
-goal_model = joblib.load("goal_classifier_model.pkl")
 
 # Market Insight Snippets
 market_insights = {
@@ -28,15 +26,21 @@ app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 app.secret_key = "supersecretkey"
 
-# ML-powered goal classifier
 def extract_goal(message):
-    try:
-        prediction = goal_model.predict([message])
-        return prediction[0]
-    except:
-        return "unspecified"
+    doc = nlp(message.lower())
+    goal_map = {
+        "retirement": ["retire", "retirement"],
+        "home": ["house", "home", "mortgage"],
+        "vacation": ["trip", "vacation", "travel", "holiday"],
+        "education": ["college", "university", "school", "degree"],
+    }
+    for token in doc:
+        for goal, keywords in goal_map.items():
+            if token.lemma_ in keywords:
+                return goal
+    return "unspecified"
 
-@app.route("/", methods=["POST"])
+@app.route("/analyze_budget", methods=["POST"])
 def analyze_budget():
     try:
         data = request.json
@@ -86,20 +90,28 @@ def analyze_budget():
 
             session["chat_history"].append({"role": "user", "content": user_message})
 
-        # Build system prompt with REMI’s voice
+        # Build improved system prompt with hallucination controls
         system_prompt = (
             "You are REMI (Real-time Economic & Money Insights), an AI financial advisor with a sharp, New York edge. "
             "You don’t sugarcoat, and you don’t ramble. Be concise, witty, and give real strategies. "
             f"Market snapshot: {market_snippet} "
+            "NEVER assume facts the user hasn’t given you. "
+            "NEVER make up numbers. "
+            "If you're unsure, ask a clarifying question. "
+            "DO NOT guess financial data. "
+            "If the input is unclear, ask for more detail. "
             "End every reply with a quick follow-up question to keep the convo going."
         )
 
+        # Make request to Groq
         groq_response = requests.post(
             "https://api.groq.com/openai/v1/chat/completions",
             headers={"Authorization": f"Bearer {api_key}"},
             json={
                 "model": "llama3-8b-8192",
-                "messages": [{"role": "system", "content": system_prompt}] + session["chat_history"]
+                "messages": [
+                    {"role": "system", "content": system_prompt}
+                ] + session["chat_history"]
             }
         )
 
@@ -114,5 +126,6 @@ def analyze_budget():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
+
 
 
