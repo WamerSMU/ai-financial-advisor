@@ -1,4 +1,4 @@
-print("REMI is live — time to talk money!")
+print("REMI is live — smarter, faster, and sharper!")
 
 from flask import Flask, request, jsonify, session
 from flask_cors import CORS
@@ -6,46 +6,71 @@ import os
 import requests
 from dotenv import load_dotenv
 import spacy
+import yfinance as yf
 
 # Load environment and NLP
 load_dotenv()
 api_key = os.getenv("GROQ_API_KEY")
 nlp = spacy.load("en_core_web_sm")
 
-# Market Insight Snippets
-market_insights = {
-    "retirement": "Inflation is outpacing traditional savings. Consider Roth IRAs or diversified ETFs.",
-    "home": "Mortgage rates are still above average. First-time buyer programs or ARM loans could be a move.",
-    "vacation": "Travel prices are up, but points/rewards cards may offset. Smart budgeting = smarter play.",
-    "education": "Student loan rates are brutal. 529s and education tax credits are your best friend.",
-    "unspecified": "Markets are jittery. Index funds remain stable while tech sees swings."
-}
-
 # Flask Setup
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 app.secret_key = "supersecretkey"
 
-# Utility: NLP-based financial goal extraction
+# Financial Goal Keywords
+goal_map = {
+    "retirement": ["retire", "retirement"],
+    "home": ["house", "home", "mortgage"],
+    "vacation": ["trip", "vacation", "travel", "holiday"],
+    "education": ["college", "university", "school", "degree"]
+}
+
+# Get Live Market Data
+def get_market_snapshot():
+    try:
+        sp500 = yf.Ticker("^GSPC").history(period="1d")["Close"].iloc[-1]
+        nasdaq = yf.Ticker("^IXIC").history(period="1d")["Close"].iloc[-1]
+        dow = yf.Ticker("^DJI").history(period="1d")["Close"].iloc[-1]
+        return f"S&P 500: {sp500:.2f}, NASDAQ: {nasdaq:.2f}, Dow Jones: {dow:.2f}"
+    except Exception as e:
+        return "Markets are currently volatile. Live data unavailable."
+
+# Extract Financial Goal from Message
 def extract_goal(message):
     doc = nlp(message.lower())
-    goal_map = {
-        "retirement": ["retire", "retirement"],
-        "home": ["house", "home", "mortgage"],
-        "vacation": ["trip", "vacation", "travel", "holiday"],
-        "education": ["college", "university", "school", "degree"],
-    }
     for token in doc:
         for goal, keywords in goal_map.items():
             if token.lemma_ in keywords:
                 return goal
     return "unspecified"
 
-# Context validator to check required financial inputs
-def get_missing_context(data):
-    required = ["income", "expenses", "savings_goal", "age", "financial_goal"]
-    missing = [key for key in required if not data.get(key)]
-    return missing
+# Update session with known user facts
+def update_user_facts(message):
+    if "user_facts" not in session:
+        session["user_facts"] = {}
+
+    # Simple rule-based updates
+    lowered = message.lower()
+    if "i am " in lowered or "i'm " in lowered:
+        if "year" in lowered and any(num.isdigit() for num in lowered):
+            for word in lowered.split():
+                if word.isdigit() and 10 < int(word) < 100:
+                    session["user_facts"]["age"] = int(word)
+
+    if "saving" in lowered or "$" in lowered:
+        for word in lowered.replace(",", "").split():
+            if word.startswith("$") and word[1:].isdigit():
+                session["user_facts"]["savings"] = int(word[1:])
+            elif word.isdigit():
+                session["user_facts"]["savings"] = int(word)
+
+    if "income" in lowered:
+        for word in lowered.replace(",", "").split():
+            if word.startswith("$") and word[1:].isdigit():
+                session["user_facts"]["income"] = int(word[1:])
+            elif word.isdigit():
+                session["user_facts"]["income"] = int(word)
 
 @app.route("/analyze_budget", methods=["POST"])
 def analyze_budget():
@@ -56,75 +81,45 @@ def analyze_budget():
         if "chat_history" not in session:
             session["chat_history"] = []
 
-        # Freeform message
         if message:
+            # Update facts
+            update_user_facts(message)
+
+            # Detect goal
             guessed_goal = extract_goal(message)
-            market_snippet = market_insights.get(guessed_goal, market_insights["unspecified"])
+
+            # Get market live
+            market_snippet = get_market_snapshot()
+
+            # Store in chat history
             session["chat_history"].append({
                 "role": "user",
                 "content": f"{message} (Detected goal: {guessed_goal})"
             })
+
         else:
-            # Structured input — validate what's missing
-            missing = get_missing_context(data)
-            if missing:
-                response = {
-                    "response": f"Hold up — I'm missing a few details: {', '.join(missing)}. Mind filling those in so I can give solid advice?"
-                }
-                return jsonify(response)
+            return jsonify({"error": "No message provided"}), 400
 
-            income = data.get("income", 0)
-            expenses = data.get("expenses", 0)
-            savings_goal = data.get("savings_goal", 0)
-            risk_tolerance = data.get("risk_tolerance", "medium")
-            age = data.get("age")
-            monthly_debt = data.get("monthly_debt")
-            existing_savings = data.get("existing_savings")
-            financial_goal = data.get("financial_goal", "unspecified")
-
-            disposable_income = income - expenses
-            savings_rate = round((disposable_income / income) * 100, 2) if income else 0
-            debt_to_income = round((monthly_debt / (income / 12)) * 100, 2) if monthly_debt and income else None
-
-            market_snippet = market_insights.get(financial_goal, market_insights["unspecified"])
-
-            user_message = (
-                f"User earns ${income}/yr, spends ${expenses}, wants to save ${savings_goal}. "
-                f"Disposable: ${disposable_income}, Savings rate: {savings_rate}%. "
-            )
-            if age:
-                user_message += f"Age: {age}. "
-            if debt_to_income is not None:
-                user_message += f"DTI: {debt_to_income}%. "
-            if existing_savings:
-                user_message += f"Current savings: ${existing_savings}. "
-            if financial_goal:
-                user_message += f"Financial goal: {financial_goal}. "
-
-            user_message += f"Risk: {risk_tolerance}. Be blunt, realistic, helpful."
-
-            session["chat_history"].append({"role": "user", "content": user_message})
-
-        # System prompt with hallucination control
+        # Build custom system prompt with memory
+        user_facts_summary = " | ".join([f"{k}: {v}" for k, v in session.get("user_facts", {}).items()]) if session.get("user_facts") else "None yet."
+        
         system_prompt = (
-            "You are REMI (Real-time Economic & Money Insights), an AI financial advisor with a sharp, New York edge. "
-            "You don’t sugarcoat, and you don’t ramble. Be concise, witty, and give real strategies. "
-            f"Market snapshot: {market_snippet} "
-            "NEVER assume facts the user hasn’t given you. "
-            "NEVER make up numbers. "
-            "If you're unsure, ask a clarifying question. "
-            "DO NOT guess financial data. "
-            "If the input is unclear, ask for more detail. "
-            "End every reply with a quick follow-up question to keep the convo going."
+            f"You are REMI (Real-time Economic & Money Insights), an AI financial advisor with a sharp, witty New York edge. "
+            f"Be concise, no sugarcoating. "
+            f"Market snapshot: {market_snippet}. "
+            f"Known user facts: {user_facts_summary}. "
+            "Rules: NEVER make up facts. If missing important details, politely ask for them. "
+            "NEVER assume savings, age, income unless the user provides it. "
+            "End every reply with a short follow-up question to keep the conversation alive."
         )
 
-        # Call Groq API with upgraded model and controlled temperature
+        # Call Groq API
         groq_response = requests.post(
             "https://api.groq.com/openai/v1/chat/completions",
             headers={"Authorization": f"Bearer {api_key}"},
             json={
-                "model": "llama3-70b-8192",  # Upgraded model
-                "temperature": 0.3,          # Lower temperature for consistency
+                "model": "llama3-70b-8192",
+                "temperature": 0.3,
                 "messages": [
                     {"role": "system", "content": system_prompt}
                 ] + session["chat_history"]
@@ -142,4 +137,5 @@ def analyze_budget():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
+
 
