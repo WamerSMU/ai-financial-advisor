@@ -23,13 +23,10 @@ market_insights = {
 
 # Flask Setup
 app = Flask(__name__)
-CORS(app)
+CORS(app, resources={r"/*": {"origins": "*"}})
 app.secret_key = "supersecretkey"
 
-@app.route("/")
-def home():
-    return jsonify({"message": "Welcome to REMI – Your AI Financial Advisor!"})
-
+# Utility: NLP-based financial goal extraction
 def extract_goal(message):
     doc = nlp(message.lower())
     goal_map = {
@@ -44,6 +41,12 @@ def extract_goal(message):
                 return goal
     return "unspecified"
 
+# Context validator to check required financial inputs
+def get_missing_context(data):
+    required = ["income", "expenses", "savings_goal", "age", "financial_goal"]
+    missing = [key for key in required if not data.get(key)]
+    return missing
+
 @app.route("/analyze_budget", methods=["POST"])
 def analyze_budget():
     try:
@@ -53,6 +56,7 @@ def analyze_budget():
         if "chat_history" not in session:
             session["chat_history"] = []
 
+        # Freeform message
         if message:
             guessed_goal = extract_goal(message)
             market_snippet = market_insights.get(guessed_goal, market_insights["unspecified"])
@@ -61,7 +65,14 @@ def analyze_budget():
                 "content": f"{message} (Detected goal: {guessed_goal})"
             })
         else:
-            # Structured JSON input
+            # Structured input — validate what's missing
+            missing = get_missing_context(data)
+            if missing:
+                response = {
+                    "response": f"Hold up — I'm missing a few details: {', '.join(missing)}. Mind filling those in so I can give solid advice?"
+                }
+                return jsonify(response)
+
             income = data.get("income", 0)
             expenses = data.get("expenses", 0)
             savings_goal = data.get("savings_goal", 0)
@@ -94,20 +105,29 @@ def analyze_budget():
 
             session["chat_history"].append({"role": "user", "content": user_message})
 
-        # Build system prompt with REMI’s voice
+        # System prompt with hallucination control
         system_prompt = (
             "You are REMI (Real-time Economic & Money Insights), an AI financial advisor with a sharp, New York edge. "
             "You don’t sugarcoat, and you don’t ramble. Be concise, witty, and give real strategies. "
             f"Market snapshot: {market_snippet} "
+            "NEVER assume facts the user hasn’t given you. "
+            "NEVER make up numbers. "
+            "If you're unsure, ask a clarifying question. "
+            "DO NOT guess financial data. "
+            "If the input is unclear, ask for more detail. "
             "End every reply with a quick follow-up question to keep the convo going."
         )
 
+        # Call Groq API with upgraded model and controlled temperature
         groq_response = requests.post(
             "https://api.groq.com/openai/v1/chat/completions",
             headers={"Authorization": f"Bearer {api_key}"},
             json={
-                "model": "llama3-8b-8192",
-                "messages": [{"role": "system", "content": system_prompt}] + session["chat_history"]
+                "model": "llama3-70b-8192",  # Upgraded model
+                "temperature": 0.3,          # Lower temperature for consistency
+                "messages": [
+                    {"role": "system", "content": system_prompt}
+                ] + session["chat_history"]
             }
         )
 
@@ -120,5 +140,6 @@ def analyze_budget():
         return jsonify({"error": str(e)}), 400
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
+    port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
+
