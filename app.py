@@ -4,114 +4,127 @@ from flask import Flask, request, jsonify, session
 from flask_cors import CORS
 import os
 import requests
+import yfinance as yf
+from datetime import datetime
 from dotenv import load_dotenv
-import spacy
 
-# Load environment and NLP
+# Load environment variables
 load_dotenv()
 api_key = os.getenv("GROQ_API_KEY")
-nlp = spacy.load("en_core_web_sm")
 
-# Flask Setup
+# Flask setup
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 app.secret_key = "supersecretkey"
 
-# Initialize user profile
-def init_profile():
-    return {
-        "age": None,
-        "income": None,
-        "savings": None,
-        "expenses": None,
-        "retirement_goal": None,
-        "location": None
-    }
+# Market Insight Snippets
+market_insights = {
+    "retirement": "Inflation is outpacing traditional savings. Consider Roth IRAs or diversified ETFs.",
+    "home": "Mortgage rates are still above average. First-time buyer programs or ARM loans could be a move.",
+    "vacation": "Travel prices are up, but points/rewards cards may offset. Smart budgeting = smarter play.",
+    "education": "Student loan rates are brutal. 529s and education tax credits are your best friend.",
+    "unspecified": "Markets are jittery. Index funds remain stable while tech sees swings."
+}
 
-# Extract financial details from user message
-def update_profile(message, profile):
-    doc = nlp(message.lower())
-    for ent in doc.ents:
-        if ent.label_ == "MONEY":
-            if "income" not in profile or profile["income"] is None:
-                profile["income"] = ent.text
-            elif "savings" not in profile or profile["savings"] is None:
-                profile["savings"] = ent.text
-        if ent.label_ == "DATE" and "year" not in ent.text.lower():
-            try:
-                age_candidate = int(ent.text)
-                if 10 < age_candidate < 100:
-                    profile["age"] = age_candidate
-            except:
-                pass
-    if "retire" in message and "retirement_goal" not in profile:
-        profile["retirement_goal"] = "early retirement"
-    return profile
+# Helper: Get today's real date
+def get_today_date():
+    return datetime.now().strftime("%B %d, %Y")
 
-# Build user profile summary
-def profile_summary(profile):
-    parts = []
-    if profile["age"]:
-        parts.append(f"Age: {profile['age']}")
-    if profile["income"]:
-        parts.append(f"Income: {profile['income']}")
-    if profile["savings"]:
-        parts.append(f"Savings: {profile['savings']}")
-    if profile["expenses"]:
-        parts.append(f"Expenses: {profile['expenses']}")
-    if profile["retirement_goal"]:
-        parts.append(f"Goal: {profile['retirement_goal']}")
-    return " | ".join(parts) if parts else "No significant financial details provided yet."
+# Helper: Get real-time stock price
+def get_stock_price(ticker="AAPL"):
+    try:
+        data = yf.download(ticker, period="1d", interval="1m", progress=False)
+        if not data.empty:
+            latest_price = round(data["Close"].iloc[-1], 2)
+            return latest_price
+        else:
+            return None
+    except Exception:
+        return None
 
+# Main endpoint
 @app.route("/analyze_budget", methods=["POST"])
 def analyze_budget():
     try:
         data = request.json
-        message = data.get("message", "")
+        message = data.get("message")
 
         if "chat_history" not in session:
             session["chat_history"] = []
-        if "user_profile" not in session:
-            session["user_profile"] = init_profile()
 
-        # Update profile
-        session["user_profile"] = update_profile(message, session["user_profile"])
+        if "user_memory" not in session:
+            session["user_memory"] = {}
 
-        # Handle vague inputs like "not sure"
-        if "not sure" in message.lower() or "idk" in message.lower():
-            reply = "No worries — let's work it out together! Can you give me a rough idea of your income, savings, or financial goal?"
-            return jsonify({"response": reply})
+        # Check if user is giving structured data
+        if message:
+            session["chat_history"].append({
+                "role": "user",
+                "content": message
+            })
 
-        # Add to history
-        session["chat_history"].append({
-            "role": "user",
-            "content": f"{message} (Current Profile: {profile_summary(session['user_profile'])})"
-        })
+            # Try to extract basic info (very simple parsing)
+            lowered = message.lower()
+            if "i am" in lowered and "years old" in lowered:
+                try:
+                    age = int([word for word in lowered.split() if word.isdigit()][0])
+                    session["user_memory"]["age"] = age
+                except:
+                    pass
+            if "income" in lowered or "make" in lowered:
+                try:
+                    income = int([word.replace(",", "") for word in lowered.split() if word.replace(",", "").isdigit()][0])
+                    session["user_memory"]["income"] = income
+                except:
+                    pass
+            if "saved" in lowered or "savings" in lowered:
+                try:
+                    savings = int([word.replace(",", "") for word in lowered.split() if word.replace(",", "").isdigit()][0])
+                    session["user_memory"]["savings"] = savings
+                except:
+                    pass
 
-        # Market insight (optional: you can enhance this part later)
-        market_snippet = (
-            "Markets are volatile today. The S&P 500 is stable, tech stocks are swinging. "
-            "Consider diversification strategies and index funds for stability."
-        )
+            # Check if they ask about Apple stock
+            if "apple stock" in lowered:
+                price = get_stock_price("AAPL")
+                today = get_today_date()
+                if price:
+                    stock_message = f"As of {today}, Apple (AAPL) is trading around ${price}."
+                else:
+                    stock_message = "Sorry, I couldn't fetch real-time Apple stock data at the moment."
+                session["chat_history"].append({
+                    "role": "assistant",
+                    "content": stock_message
+                })
 
-        # Improved system prompt
+        # Build dynamic system prompt
+        today = get_today_date()
+        user_info = ""
+        if session["user_memory"]:
+            for k, v in session["user_memory"].items():
+                user_info += f"{k.capitalize()}: {v}. "
+
         system_prompt = (
-            "You are REMI (Real-time Economic & Money Insights), an elite AI financial advisor with a no-nonsense, witty, New York attitude. "
-            "You do NOT hallucinate numbers. You ONLY reference the user's provided info or ask for clarification. "
-            "Use the user's financial profile when answering. If unclear, ask for missing information. "
-            f"Current user profile: {profile_summary(session['user_profile'])} "
-            f"Market insight: {market_snippet} "
-            "End every reply with a follow-up question to gather more useful financial information."
+            f"You are REMI (Real-time Economic & Money Insights), an AI financial advisor with a sharp, New York edge. "
+            f"Today is {today}. {user_info}"
+            "You don’t sugarcoat, and you don’t ramble. Be concise, witty, and give real strategies. "
+            "NEVER assume facts the user hasn’t given you. "
+            "NEVER make up numbers. "
+            "If you're unsure, ask a clarifying question. "
+            "DO NOT guess financial data. "
+            "If the input is unclear, ask for more detail. "
+            "End every reply with a quick follow-up question to keep the convo going."
         )
 
-        # Call Groq
+        # Make request to Groq
         groq_response = requests.post(
             "https://api.groq.com/openai/v1/chat/completions",
             headers={"Authorization": f"Bearer {api_key}"},
             json={
                 "model": "llama3-70b-8192",
                 "temperature": 0.3,
-                "messages": [{"role": "system", "content": system_prompt}] + session["chat_history"]
+                "messages": [
+                    {"role": "system", "content": system_prompt}
+                ] + session["chat_history"]
             }
         )
 
@@ -126,6 +139,7 @@ def analyze_budget():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
+
 
 
 
