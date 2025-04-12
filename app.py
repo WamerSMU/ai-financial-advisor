@@ -107,7 +107,7 @@ def analyze_budget():
         # Call Groq
         groq_response = requests.post(
             "https://api.groq.com/openai/v1/chat/completions",
-            headers={"Authorization": f"Bearer {api_key}},
+            headers={"Authorization": f"Bearer {api_key}"},
             json={
                 "model": "llama3-70b-8192",
                 "temperature": 0.3,
