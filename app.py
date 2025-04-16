@@ -4,33 +4,30 @@ from flask import Flask, request, jsonify, session
 from flask_cors import CORS
 import os
 import requests
+import yfinance as yf
 from dotenv import load_dotenv
 import spacy
-import yfinance as yf
-from datetime import datetime
 
-# Load env & spaCy
+# Load environment and NLP
 load_dotenv()
 api_key = os.getenv("GROQ_API_KEY")
 nlp = spacy.load("en_core_web_sm")
 
+# Market Insight Snippets
+market_insights = {
+    "retirement": "Inflation is outpacing traditional savings. Consider Roth IRAs or diversified ETFs.",
+    "home": "Mortgage rates are still above average. First-time buyer programs or ARM loans could be a move.",
+    "vacation": "Travel prices are up, but points/rewards cards may offset. Smart budgeting = smarter play.",
+    "education": "Student loan rates are brutal. 529s and education tax credits are your best friend.",
+    "unspecified": "Markets are jittery. Index funds remain stable while tech sees swings."
+}
+
+# Flask Setup
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 app.secret_key = "supersecretkey"
 
-# 🔍 Real-time stock data
-def get_stock_price(symbol):
-    try:
-        stock = yf.Ticker(symbol)
-        data = stock.history(period="1d")
-        if not data.empty:
-            price = round(data["Close"].iloc[-1], 2)
-            return f"{symbol.upper()} is trading at ${price} as of {datetime.now().strftime('%Y-%m-%d')}."
-    except Exception:
-        pass
-    return f"Sorry, I couldn't fetch data for {symbol.upper()}."
-
-# 🧠 Extract goal via NLP
+# Extract financial goal
 def extract_goal(message):
     doc = nlp(message.lower())
     goal_map = {
@@ -45,72 +42,94 @@ def extract_goal(message):
                 return goal
     return "unspecified"
 
-# 🧠 Update user memory
-def update_user_profile(data):
-    if "user_profile" not in session:
-        session["user_profile"] = {}
+# Check if user mentioned key facts
+def extract_facts(message):
+    facts = {}
+    if "age" in session:
+        facts["age"] = session["age"]
+    if "savings" in session:
+        facts["savings"] = session["savings"]
 
-    profile = session["user_profile"]
-    fields = ["age", "income", "expenses", "savings_goal", "monthly_debt", "existing_savings", "financial_goal", "risk_tolerance"]
-    for field in fields:
-        value = data.get(field)
-        if value:
-            profile[field] = value
-    session["user_profile"] = profile
+    # Extract basic new info
+    doc = nlp(message.lower())
+    for ent in doc.ents:
+        if ent.label_ == "AGE" or ("years old" in message):
+            try:
+                age_value = int(''.join(filter(str.isdigit, ent.text)))
+                session["age"] = age_value
+                facts["age"] = age_value
+            except:
+                pass
+        if "$" in ent.text or "k" in ent.text:
+            try:
+                text = ent.text.replace("$", "").replace("k", "000")
+                savings_value = int(''.join(filter(str.isdigit, text)))
+                session["savings"] = savings_value
+                facts["savings"] = savings_value
+            except:
+                pass
+    return facts
 
-def build_context_string():
-    profile = session.get("user_profile", {})
-    if not profile:
-        return ""
-    context = "Here’s what I know so far about the user:\n"
-    for k, v in profile.items():
-        context += f"- {k.replace('_', ' ').title()}: {v}\n"
-    return context.strip()
+# Handle stock queries
+def get_stock_price(message):
+    tickers = {
+        "apple": "AAPL",
+        "tesla": "TSLA",
+        "amazon": "AMZN",
+        "google": "GOOGL",
+        "meta": "META",
+        "microsoft": "MSFT"
+    }
+    for key, symbol in tickers.items():
+        if key in message.lower():
+            try:
+                stock = yf.Ticker(symbol)
+                todays_data = stock.history(period='1d')
+                price = todays_data['Close'].iloc[-1]
+                return f"{key.capitalize()} (ticker {symbol}) is trading at around ${price:.2f} today."
+            except:
+                return f"Couldn't fetch real-time data for {key.capitalize()} right now."
+    return None
 
 @app.route("/analyze_budget", methods=["POST"])
 def analyze_budget():
     try:
         data = request.json
-        message = data.get("message", "")
+        message = data.get("message")
+
         if "chat_history" not in session:
             session["chat_history"] = []
 
-        # 🧠 If structured input, update memory
-        update_user_profile(data)
+        if message:
+            guessed_goal = extract_goal(message)
+            extracted_facts = extract_facts(message)
+            stock_info = get_stock_price(message)
 
-        # 🧠 If stock lookup
-        if "stock" in data:
-            symbol = data["stock"]
-            stock_response = get_stock_price(symbol)
-            return jsonify({"response": stock_response})
+            market_snippet = market_insights.get(guessed_goal, market_insights["unspecified"])
+            user_message = f"{message}"
+            if extracted_facts:
+                facts_str = ", ".join(f"{k}: {v}" for k, v in extracted_facts.items())
+                user_message += f" (Extracted facts: {facts_str})"
 
-        # 🧠 If chat input, process goal and message
-        guessed_goal = extract_goal(message)
-        market_insights = {
-            "retirement": "Inflation is outpacing traditional savings. Consider Roth IRAs or diversified ETFs.",
-            "home": "Mortgage rates are still above average. First-time buyer programs or ARM loans could be a move.",
-            "vacation": "Travel prices are up, but points/rewards cards may offset. Smart budgeting = smarter play.",
-            "education": "Student loan rates are brutal. 529s and education tax credits are your best friend.",
-            "unspecified": "Markets are jittery. Index funds remain stable while tech sees swings."
-        }
-        market_snippet = market_insights.get(guessed_goal, market_insights["unspecified"])
+            if stock_info:
+                session["chat_history"].append({"role": "assistant", "content": stock_info})
 
-        # Add message to chat
-        session["chat_history"].append({
-            "role": "user",
-            "content": f"{message} (Detected goal: {guessed_goal})"
-        })
+            session["chat_history"].append({"role": "user", "content": user_message})
 
-        # 🧠 System Prompt with memory + market context
+        else:
+            return jsonify({"response": "I didn't get a message to analyze!"})
+
+        # System prompt
         system_prompt = (
-            f"You are REMI, a witty, blunt, New York-style financial advisor. "
-            f"{build_context_string()}\n"
-            "Never guess anything you don't know. Ask if you're unsure. "
-            f"Market snapshot: {market_snippet}\n"
+            "You are REMI (Real-time Economic & Money Insights), an AI financial advisor with a sharp, New York edge. "
+            "You don’t sugarcoat, and you don’t ramble. Be concise, witty, and give real strategies. "
+            "Use real-time facts if available. NEVER assume facts the user hasn’t given you. "
+            "If information is missing, ask for it instead of guessing. "
+            f"Latest Market Insight: {market_snippet} "
             "Always end with a follow-up question."
         )
 
-        # 🧠 Call Groq
+        # Groq API call
         groq_response = requests.post(
             "https://api.groq.com/openai/v1/chat/completions",
             headers={"Authorization": f"Bearer {api_key}"},
@@ -123,6 +142,7 @@ def analyze_budget():
 
         ai_reply = groq_response.json().get("choices", [{}])[0].get("message", {}).get("content", "No response.")
         session["chat_history"].append({"role": "assistant", "content": ai_reply})
+
         return jsonify({"response": ai_reply})
 
     except Exception as e:
@@ -131,6 +151,7 @@ def analyze_budget():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
+
 
 
 
