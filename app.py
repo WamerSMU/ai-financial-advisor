@@ -24,7 +24,12 @@ market_insights = {
 
 # Flask Setup
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "*"}})
+
+# ✅ Proper CORS setup for Squarespace + session memory
+CORS(app, supports_credentials=True, resources={
+    r"/*": {"origins": ["https://www.waleedamer.com"]}
+})
+
 app.secret_key = "supersecretkey"
 
 # Extract financial goal
@@ -50,7 +55,6 @@ def extract_facts(message):
     if "savings" in session:
         facts["savings"] = session["savings"]
 
-    # Extract basic new info
     doc = nlp(message.lower())
     for ent in doc.ents:
         if ent.label_ == "AGE" or ("years old" in message):
@@ -119,7 +123,6 @@ def analyze_budget():
         else:
             return jsonify({"response": "I didn't get a message to analyze!"})
 
-        # System prompt
         system_prompt = (
             "You are REMI (Real-time Economic & Money Insights), an AI financial advisor with a sharp, New York edge. "
             "You don’t sugarcoat, and you don’t ramble. Be concise, witty, and give real strategies. "
@@ -129,7 +132,6 @@ def analyze_budget():
             "Always end with a follow-up question."
         )
 
-        # Groq API call
         groq_response = requests.post(
             "https://api.groq.com/openai/v1/chat/completions",
             headers={"Authorization": f"Bearer {api_key}"},
@@ -151,10 +153,3 @@ def analyze_budget():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
-
-
-
-
-
-
-
