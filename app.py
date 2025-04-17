@@ -11,7 +11,14 @@ import spacy
 # Load environment and NLP
 load_dotenv()
 api_key = os.getenv("GROQ_API_KEY")
-nlp = spacy.load("en_core_web_sm")
+
+# ✅ Ensure spaCy model is available even on a clean Render build
+try:
+    nlp = spacy.load("en_core_web_sm")
+except OSError:
+    import spacy.cli
+    spacy.cli.download("en_core_web_sm")
+    nlp = spacy.load("en_core_web_sm")
 
 # Market Insight Snippets
 market_insights = {
@@ -24,12 +31,9 @@ market_insights = {
 
 # Flask Setup
 app = Flask(__name__)
-
-# ✅ Proper CORS setup for Squarespace + session memory
 CORS(app, supports_credentials=True, resources={
     r"/*": {"origins": ["https://www.waleedamer.com"]}
 })
-
 app.secret_key = "supersecretkey"
 
 # Extract financial goal
